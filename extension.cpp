@@ -36,6 +36,82 @@
  * @brief Implement extension code here.
  */
 
-Sample g_Sample;		/**< Global singleton for extension's main interface */
+EHInfo g_EHInfo;		/**< Global singleton for extension's main interface */
 
-SMEXT_LINK(&g_Sample);
+SMEXT_LINK(&g_EHInfo);
+
+// native bool IsEventHooked(Handle plugin, const char[] name);
+
+struct EventHook
+{
+	EventHook()
+	{
+		pPreHook = NULL;
+		pPostHook = NULL;
+		postCopy = false;
+		refCount = 0;
+	}
+	IChangeableForward *pPreHook;
+	IChangeableForward *pPostHook;
+	bool postCopy;
+	unsigned int refCount;
+	std::string name;
+
+	static inline bool matches(const char *name, const EventHook *hook)
+	{
+		return strcmp(name, hook->name.c_str()) == 0;
+	}
+	static inline uint32_t hash(const detail::CharsAndLength &key)
+	{
+		return key.hash();
+	}
+};
+
+typedef SourceHook::List<EventHook *> EventHookList;
+
+cell_t IsEventHookedEx(IPluginContext *pContext, const cell_t *params)
+{
+	Handle_t plugin;
+	const char *name;
+	HandleError *err;
+
+	plugin = static_cast<Handle_t>(params[1]);
+	pContext->LocalToString(params[2], const_cast<char **>(&name));
+	pContext->LocalToPhysAddr(params[3], reinterpret_cast<cell_t **>(&err));
+
+	IPlugin *pPlugin = plsys->PluginFromHandle(plugin, err);
+	if(pPlugin == NULL)
+	{
+		return static_cast<cell_t>(false);
+	}
+
+	EventHookList *pHookList;
+	if(!pPlugin->GetProperty("EventHooks", reinterpret_cast<void **>(&pHookList)))
+	{
+		return static_cast<cell_t>(false);
+	}
+
+	EventHookList::iterator it;
+	for(it = pHookList->begin(); it != pHookList->end(); it++)
+	{
+		EventHook *pHook = (*it);
+
+		if(EventHook::matches(name, pHook))
+		{
+			return static_cast<cell_t>(true);
+		}
+	}
+
+    return static_cast<cell_t>(false);
+}
+
+const sp_nativeinfo_t natives[] = 
+{
+	{"IsEventHookedEx",	IsEventHookedEx},
+	{NULL,				NULL},
+};
+
+void EHInfo::SDK_OnAllLoaded()
+{
+	sharesys->AddNatives(myself, natives);
+}
